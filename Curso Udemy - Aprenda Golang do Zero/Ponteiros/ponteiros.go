@@ -6,7 +6,7 @@ func main() {
 	fmt.Println("--------- PONTEIROS ---------")
 
 	var number1 int = 1
-	var number2 int = 2
+	var number2 int = number1
 	fmt.Println("[number1 number2]", number1, number2)
 
 	number1 = 20
