@@ -1,58 +1,46 @@
 package kafka_sample
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
-func Consume(topic string) chan string {
+func Consume(topic string, run *bool) (result chan string, err error) {
 
 	channel := make(chan string)
 
-	conf := ReadConfig("./getting_started.properties")
-
-	conf["group.id"] = "go-kafka-example"
-	conf["auto.offset.reset"] = "earliest"
-
+	conf := ReadConfig()
 	c, err := kafka.NewConsumer(&conf)
 
 	if err != nil {
-		fmt.Printf("Failed to create consumer: %s", err)
-		os.Exit(1)
+		close(channel)
+		return channel, errors.New(fmt.Sprintf("[CONSUMER] Failed to create consumer: %s", err))
 	}
 
-	err = c.SubscribeTopics([]string{topic}, nil)
-
-	// Set up a channel for handling Ctrl-C, etc
-	sigchan := make(chan os.Signal, 1)
-	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Process messages
-	run := true
+	if err = c.SubscribeTopics([]string{topic}, nil); err != nil {
+		close(channel)
+		return channel, errors.New(fmt.Sprintf("[CONSUMER] Failed to subscribe topics: %s", err))
+	}
 
 	go func() {
-		for run {
-			select {
-			case sig := <-sigchan:
-				channel <- fmt.Sprintf("Caught signal %v: terminating\n", sig)
-				run = false
-				close(channel)
-			default:
-				ev, err := c.ReadMessage(100 * time.Millisecond)
-				if err != nil {
-					// Errors are informational and automatically handled by the consumer
-					continue
-				}
-				channel <- fmt.Sprintf("Consumed event from topic %s: key = %-10s value = %s\n",
-					*ev.TopicPartition.Topic, string(ev.Key), string(ev.Value))
+		for *run {
+			if ev, err := c.ReadMessage(200 * time.Millisecond); err != nil {
+				continue
+			} else {
+				channel <- fmt.Sprintf("[CONSUMER] Consumed event from topic %s: value = %s",
+					*ev.TopicPartition.Topic, string(ev.Value))
 			}
 		}
+
+		if err = c.Close(); err != nil {
+			channel <- fmt.Sprintf("[CONSUMER] Failed to close consumer: %s", err)
+		}
+
+		channel <- fmt.Sprintf("[CONSUMER] Stopping consumer")
 	}()
 
-	return channel
+	return channel, nil
 }
